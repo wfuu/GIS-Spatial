@@ -1,0 +1,70 @@
+---
+title: "Point Pattern Analysis in R"
+author: "Wen Fu"
+date: "February 18, 2016"
+output: html_document
+---
+1. Load packages
+```{r}
+#setwd()
+
+suppressMessages(library(maptools))
+suppressMessages(library(rgdal))
+suppressMessages(library(shapefiles))
+suppressMessages(library(spatstat))
+suppressMessages(library(splancs))
+suppressMessages(library(sp))
+```
+
+2. Read .shp file into R for splancs
+```{r}
+TRI <- readShapePoints("MS_TRI")
+TRI_Coords <- coordinates(TRI)
+border <- readShapePoly(paste("ms_dissolve", sep=""))
+MSbord <- border@polygons[[1]]@Polygons[[1]]@coords
+
+plot(TRI)
+plot(border)
+```
+
+3. Read .shp file into R for spatstat
+```{r}
+border2 <- readShapePoly("ms_dissolve")
+boundry <- as(border2, "owin")
+TRI2 <- readShapePoints("MS_TRI")
+TRIpts <- as(TRI2, "ppp")
+TRI_border <- ppp(TRIpts$x, TRIpts$y, window = boundry)
+
+plot(TRI_border, axes = T)
+```
+
+4. Quadrat method of exploring complete spatial randomness (CSR) of the point pattern
+```{r}
+qt <- quadrat.test(TRI_border, nx = 10, ny = 10)
+qt
+
+plot(TRI_border)
+plot(qt, add = T, cex = .5)
+```
+
+5. G estimate in R
+```{r}
+G<-Gest(as(TRI_border, "ppp"))
+
+plot(G)
+```
+
+6. F estimate in R
+```{r}
+r <- seq(0, 10, by = 0.5)
+F <- envelope(TRI_border, Fest, r = r, nsim = 10, rank = 2)
+
+plot(F)
+```
+
+7. K function in R 
+```{r}
+L <- envelope(TRI_border, Lest, nsim = 10, rank = 2, global = T)
+
+plot(L)
+```
