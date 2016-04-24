@@ -1,0 +1,103 @@
+---
+title: "Spatial Regression in R"
+author: "Wen Fu"
+date: "April 24, 2016"
+output: 
+  html_document: 
+    keep_md: yes
+---
+This lab examines the relationship between population characteristics and exposure to toxic releases in Mississippi (county-level). 
+
+```{r}
+suppressPackageStartupMessages(library(spdep))
+suppressPackageStartupMessages(library(maptools))
+```
+
+Read shapefile into R as polygons. Dependent variable is "Exposure", independent variables are % high-school dropout ("HS_DO"), % unemployed ("UNEMP"), % poverty ("POV") and % black ("PBLK").
+```{r}
+TRI_poly <- readShapeSpatial("TRI_REG")
+names(TRI_poly)
+```
+
+Given county-level data, an assumption is to use contiguity-based queen matrix as the proper weighting scheme which is created below.
+```{r}
+TRI_nbq <- poly2nb(TRI_poly)
+```
+
+To visualize the connectivity between each county and its neighbors, extract centroids and plot the weight matrix by these coordinates.
+```{r}
+coords <- coordinates(TRI_poly)
+plot(TRI_poly)
+plot(TRI_nbq, coords, add = T)
+```
+
+Summarize the weight matrix.
+```{r}
+summary(TRI_nbq)
+```
+
+To proceed in spatial dependence tests and spatial regression, convert the matrix to a list.
+```{r}
+TRI_nbq_w <- nb2listw(TRI_nbq)
+```
+
+Test for spatial dependence in the Exposure variable, using Moran's I test, with the weights list. The result indicates there exists positive spatial dependence - clusters of high and low toxic release exposure in MS at the county level.
+```{r}
+moran.test(TRI_poly$Exposure, listw = TRI_nbq_w)
+```
+
+To identify the local clusters, first produce the local I coefficients and p-values for each county. The resulting list indicates the observed and expected values of I with the p-values. Spatial cluster of exposure exists where the observed local I deviates significantly from the expected value.
+```{r}
+summary(TRI_poly$COUNTY)
+fips <- order(TRI_poly$COUNTY)
+locI <- localmoran(TRI_poly$Exposure, TRI_nbq_w)
+printCoefmat(data.frame(locI[fips, ], row.names = TRI_poly$COUNTY[fips]), check.names = FALSE)
+```
+
+Visualize a map of significant high clusters of exposure.
+```{r}
+LocI <- moran.plot(TRI_poly$Exposure, TRI_nbq_w, labels = as.character(TRI_poly$NAME), xlim = c(-1, 6.5), ylim = c(-1, 4.5), xlab = "Exposure", ylab = "Spatial Lag Exposure")
+infl <- apply(LocI$is.inf, 1, any)
+x <- TRI_poly$Exposure
+lhx <- cut(x, breaks = c(min(x), mean(x), max(x)), labels = c("Low", "High"), include.lowest = TRUE)
+wx <- lag(TRI_nbq_w, TRI_poly$Exposure)
+lhwx <- cut(wx, breaks = c(min(wx), mean(wx), max(wx)), labels = c("Low", "High"), include.lowest = TRUE)
+lhlh <- interaction(lhx, lhwx, infl, drop = FALSE)
+cols <- rep(1, length(lhlh))
+cols[lhlh == "High.Low.TRUE"] <- 2
+cols[lhlh == "Low.High.TRUE"] <- 3
+cols[lhlh == "High.High.TRUE"] <- 4
+plot(TRI_poly, col = grey.colors(4, 0.95, 0.55, 2.2)[cols])
+legend("bottomleft", legend = c("None", "High.Low", "Low.High", "High.High"), fill = grey.colors(4, 0.95, 0.55, 2.2), bty = "n", y.intersp = 0.8)
+```
+
+With spatial dependence identified, proceed to spatial regression modeling. Result shows that unemployment rate is the only significant effect.
+```{r}
+TRI.lm <- lm(Exposure ~ HS_DO + UNEMP + POV + PBLK, data = TRI_poly)
+summary(TRI.lm)
+```
+
+Specify and view the Lagrange Multiplier tests. Results show that both the LMerr and LMlag models capture the process of spatial dependence in the data, but that the robust forms of both are insignificant. Also, the SARMA model indicates that both lag (substantive lag effects) and error (error term structural inconsistency) forms of spatial dependence exist in the data.
+```{r}
+TRI.lagrange <- lm.LMtests(TRI.lm, TRI_nbq_w, test = c("LMerr", "RLMerr", "LMlag", "RLMlag", "SARMA"))
+print(TRI.lagrange)
+```
+
+Further examine the spatial lag model. The spatial lag parameter (Rho) of 0.49 is significant, meaning the average local exposure levels increase the local county's level of exposure by half a unit for each unit increase in the spatial lag exposure levels. Again, only unemployment is significantly associated with exposure.
+```{r}
+TRI.lag <- lagsarlm(Exposure ~ HS_DO + UNEMP + POV + PBLK, data = TRI_poly, TRI_nbq_w)
+summary(TRI.lag)
+```
+
+Examine the spatial error model. The spatial lag parameter (Lambda) of 0.52 is significant, meaning that the average local residuals increase the local county's level of residual by half a unit for each unit increase in the spatial lag residual. Again, only unemployment is significantly associated with exposure.
+```{r}
+TRI.err <- errorsarlm(Exposure ~ HS_DO + UNEMP + POV + PBLK, data = TRI_poly, TRI_nbq_w)
+summary(TRI.err)
+```
+
+The Lagrange test results indicate the spatial process is both lag and error related. Specify and view the mixed model. The results show that while controlling for the structural inconsistency of the correlated error term through the introduction of lagged independent variables, the spatial lag of the dependent variable is significant with a Rho of 0.47. So for each unit increase in exposure on average for neighbors, a local county's exposure increases by half a unit.
+```{r}
+TRI.durbin <- lagsarlm(Exposure ~ HS_DO + UNEMP + POV + PBLK, data = TRI_poly, TRI_nbq_w, type = "mixed")
+summary(TRI.durbin)
+```
+
