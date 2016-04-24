@@ -1,0 +1,64 @@
+---
+title: "Geographically Weighted Regression"
+author: "Wen Fu"
+date: "April 24, 2016"
+output: 
+  html_document: 
+    keep_md: yes
+---
+Spatial non-stationarity: the same stimulus provokes a different response in different parts of the study region.
+
+This lab tests and visualizes non-stationarity in a model aimed at explaining variations in cancer prevalence in central NY by regressing it on amount of exposure (exposure to toxic release site) and controlling for age (% of those over 65) and SES (% of home owners).
+
+```{r}
+suppressPackageStartupMessages(library(maptools))
+suppressPackageStartupMessages(library(spdep))
+suppressPackageStartupMessages(library(spgwr))
+suppressPackageStartupMessages(library(rgdal))
+```
+
+Load the shapefile and plot it.
+```{r}
+NY_GWR <- readShapeSpatial("NY shapefile")
+plot(NY_GWR)
+```
+
+See the variables associated with the shapefile.
+```{r}
+names(NY_GWR)
+```
+
+Here, "Z" is our dependent variable indicating standardized cancer rate. Our independent variables are "PEXPOSURE", "PCTAGE65P" and "PCTOWNHOME". View each of these variables spatially.
+```{r}
+spplot(NY_GWR, "Z")
+spplot(NY_GWR, "PEXPOSURE")
+spplot(NY_GWR, "PCTAGE65P")
+spplot(NY_GWR, "PCTOWNHOME")
+```
+
+In order to examine for non-stationarity, need to identify the optimal bandwidth (bwG), which can be selected as the following.
+```{r}
+# Set weighting scheme as Gaussian (gweight) and ask for output to view (verbose = T)
+bwG <- gwr.sel(Z ~ PEXPOSURE + PCTAGE65P + PCTOWNHOME, data = NY_GWR, gweight = gwr.Gauss, verbose = TRUE) 
+```
+
+Now, use this bandwidth to produce the result - estimate the regression model with the newly created bandwidth, a Gaussian weighting scheme. View the results.
+```{r}
+gwrG <- gwr(Z ~ PEXPOSURE + PCTAGE65P + PCTOWNHOME, data = NY_GWR, bandwidth = bwG, gweight = gwr.Gauss)
+gwrG
+names(gwrG)
+# View the names of the underlying spatial data frame (SDF)
+names(gwrG$SDF) 
+```
+
+Visualize the geographical variation in the slope of exposure ($b$ of "PEXPOSURE") and model fit (local R squared) in the SDF.
+```{r}
+spplot(gwrG$SDF, "PEXPOSURE")
+spplot(gwrG$SDF, "localR2")
+```
+
+If needed, write the results out to shapefile format for use in QGIS.
+```{r, eval = F}
+writeSpatialShape(gwrG$SDF, "GWR_Results")
+```
+
